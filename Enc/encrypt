@@ -24,7 +24,7 @@ if test $# -eq 0; then
   echo "         ${CYAN}=============================================================${NC}"
   echo "         ${RED}#${NC}           ${GREEN} USAGE : ketik ${x} namafile${NC}                  ${RED} #${NC}"
   echo " ${YELLOW}        -------------------------------------------------------------${NC}"
-  echo "         ${RED}#${NC}            ${GREEN} [ Copyright @ - SANZ (2023) ] ${NC}            ${RED}#${NC}"
+  echo "         ${RED}#${NC}            ${GREEN} [ Copyright @ - KJS (2023) ] ${NC}            ${RED}#${NC}"
   echo "${BLUE}         =============================================================${NC}"
   echo ""
   echo " ${YELLOW}Untuk Dekripsi/Dekompresi (misalnya, jika file bernama 'ungzexe'):${NC}"
