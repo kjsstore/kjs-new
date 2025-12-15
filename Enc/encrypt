@@ -1,6 +1,5 @@
 #!/bin/sh
 
-# --- [ Variabel Warna untuk Tampilan ] ---
 export RED='\033[0;31m'
 export GREEN='\033[0;32m'
 export YELLOW='\033[0;33m'
@@ -9,181 +8,156 @@ export PURPLE='\033[0;35m'
 export CYAN='\033[0;36m'
 export LIGHT='\033[0;37m'
 export NC='\033[0m'
-# ------------------------------------------
 
-# Set PATH agar utilitas dasar dapat ditemukan
-PATH="/usr/bin:/bin:$PATH"
-
-# Nama script saat ini
-x=$(basename "$0")
-
-# --- [ Fungsi Bantuan/Penggunaan ] ---
-if test $# -eq 0; then
-  echo "         ${PURPLE}=============================================================${NC}"
-  echo "         ${RED}#----------------------${NC}${GREEN}[MENU ENCRYPTER]${NC}${RED}--------------------#${NC}"
-  echo "         ${CYAN}=============================================================${NC}"
-  echo "         ${RED}#${NC}           ${GREEN} USAGE : ketik ${x} namafile${NC}                  ${RED} #${NC}"
-  echo " ${YELLOW}        -------------------------------------------------------------${NC}"
-  echo "         ${RED}#${NC}            ${GREEN} [ Copyright @ - KJS (2023) ] ${NC}            ${RED}#${NC}"
-  echo "${BLUE}         =============================================================${NC}"
-  echo ""
-  echo " ${YELLOW}Untuk Dekripsi/Dekompresi (misalnya, jika file bernama 'ungzexe'):${NC}"
-  echo " ${GREEN}  $x -d namafile_terenkripsi${NC}"
+PATH="/usr/bin:$PATH"
+x=`basename $0`
+if test $# = 0; then
+  echo  "          ${PURPLE}=============================================================${NC}"
+  echo  "          ${RED}#----------------------${NC}${GREEN}[MENU  ENCRYPTER]${NC}${RED}--------------------#${NC}"
+  echo  "          ${CYAN}=============================================================${NC}"
+  echo  "          ${RED}#${NC}            ${GREEN} USAGE : ketik enc spasi namafile${NC}             ${RED} #${NC}"
+  echo  " ${YELLOW}         -------------------------------------------------------------${NC}"
+  echo  "          ${RED}#${NC}          ${GREEN}   [ Copyright @ -  SANZ (2023) ] ${NC}            ${RED}#${NC}"
+   echo  "${BLUE}          =============================================================${NC}"
   exit 1
 fi
 
-# Inisialisasi variabel
-decomp=0 # Mode Enkripsi (default)
-res=0    # Kode Keluar
+set -C
+tmp=gz$$
+trap "rm -f $tmp; exit 1" HUP INT QUIT TRAP USR1 PIPE TERM
+: > $tmp || exit 1
 
-# Cek apakah script dipanggil sebagai 'ungzexe' atau dengan flag '-d'
-if test "$x" = "ungzexe" || test "x$1" = "x-d"; then
+decomp=0
+res=0
+test "$x" = "ungzexe" && decomp=1
+if test "x$1" = "x-d"; then
   decomp=1
-  if test "x$1" = "x-d"; then
-    shift # Hapus '-d' dari argumen
-  fi
+  shift
 fi
 
-# Set penanganan error/sinyal
-# -C: mencegah penulisan ulang file dengan '>' (diabaikan karena kita akan menggunakan >|)
-# Set trap: hapus file sementara jika terjadi interupsi
-set -C
-tmp=$(mktemp -t enc_temp.XXXXXX) || exit 1
-trap "rm -f $tmp; exit 1" HUP INT QUIT TRAP USR1 PIPE TERM EXIT
+echo hi > zfoo1$$ || exit 1
+echo hi > zfoo2$$ || exit 1
+if test -z "`(${CPMOD-cpmod} zfoo1$$ zfoo2$$) 2>&1`"; then
+  cpmod=${CPMOD-cpmod}
+fi
+rm -f zfoo[12]$$
 
-# Tentukan utilitas 'tail' dan opsi
-# Asumsi: 'tail' sudah ada di PATH dan mendukung format '+N' (baris N)
-# Jika Anda benar-benar membutuhkan penentuan opsi 'tail' yang lama:
-# tail_cmd="tail +";
-# if echo foo | tail -n +1 2>/dev/null | grep -q "foo"; then
-#   tail_cmd="tail -n +"
-# fi
-# Untuk kesederhanaan modern, kita akan asumsikan 'tail +N' berfungsi.
-tail_cmd="tail +"
+tail=""
+IFS="${IFS= 	}"; saveifs="$IFS"; IFS="${IFS}:"
+for dir in $PATH; do
+  test -z "$dir" && dir=.
+  if test -f $dir/tail; then
+    tail="$dir/tail"
+    break
+  fi
+done
+IFS="$saveifs"
+if test -z "$tail"; then
+  echo cannot find tail
+  exit 1
+fi
+case `echo foo | $tail -n +1 2>/dev/null` in
+foo) tail="$tail -n";;
+esac
 
-# Loop untuk setiap file yang diberikan sebagai argumen
 for i do
-  # --- [ Pemeriksaan Awal File ] ---
   if test ! -f "$i" ; then
-    echo "${RED}${x}: '$i' bukan file atau tidak ada.${NC}"
+    echo ${x}: $i not a file
     res=1
     continue
   fi
-
-  # Cek apakah file sudah terenkripsi/terkompresi
   if test $decomp -eq 0; then
-    # Cari pola 'skip=' di baris kedua
-    if sed -n 2p "$i" | grep "^skip=[0-9]*$" >/dev/null; then
-      echo "${YELLOW}${x}: '$i' sudah terenkripsi, dilewati.${NC}"
+    if sed -e 1d -e 2q "$i" | grep "^skip=[0-9]*$" >/dev/null; then
+      echo "${x}: $i is already encrypted'd"
       continue
     fi
   fi
-  
-  # Cek izin setuid/setgid
-  PERMS=$(ls -l "$i")
-  if echo "$PERMS" | grep '^...[sS]' > /dev/null; then
-    echo "${YELLOW}${x}: '$i' memiliki izin setuid, diabaikan.${NC}"
+  if ls -l "$i" | grep '^...[sS]' > /dev/null; then
+    echo "${x}: $i has setuid permission, unchanged"
     continue
   fi
-  if echo "$PERMS" | grep '^......[sS]' > /dev/null; then
-    echo "${YELLOW}${x}: '$i' memiliki izin setgid, diabaikan.${NC}"
+  if ls -l "$i" | grep '^......[sS]' > /dev/null; then
+    echo "${x}: $i has setgid permission, unchanged"
     continue
   fi
-
-  # Cek nama file yang dapat menyebabkan ketergantungan (recursion)
-  case "$(basename "$i")" in
-    bzip2 | tail | sed | chmod | ln | sleep | rm | mktemp)
-      echo "${YELLOW}${x}: '$i' adalah utilitas sistem, diabaikan.${NC}"; continue ;;
+  case "`basename $i`" in
+  bzip2 | tail | sed | chmod | ln | sleep | rm)
+	echo "${x}: $i would depend on itself"; continue ;;
   esac
-  
-  # --- [ Proses Enkripsi/Dekripsi ] ---
-  
-  # Enkripsi (Kompresi)
+  if test -z "$cpmod"; then
+    cp -p "$i" $tmp 2>/dev/null || cp "$i" $tmp
+    if test -w $tmp 2>/dev/null; then
+      writable=1
+    else
+      writable=0
+      chmod u+w $tmp 2>/dev/null
+    fi
+    : >| $tmp  # truncate the file, ignoring set -C
+  fi
   if test $decomp -eq 0; then
-    # 1. Salin script shell ini (baris pertama) ke file sementara
-    sed 1q "$0" > "$tmp"
-    
-    # 2. Tambahkan script dekompresi/eksekusi
-    # PENTING: Variabel $tail_cmd (baris 1) akan disubstitusi di sini
-    # Script ini akan disuntikkan ke dalam file terenkripsi
-    skip_val=23 # Sesuaikan jika jumlah baris header berubah
-    
-    cat >> "$tmp" <<EOF_SCRIPT
-skip=$skip_val
+    sed 1q $0 >> $tmp
+    sed "s|^if tail|if $tail|" >> $tmp <<'EOF'
+skip=23
 set -C
-umask_val=\$(umask)
-umask 0077
-# Gunakan mktemp untuk membuat file sementara yang aman
-tmpfile=\$(mktemp -t gztmp.XXXXXX) || exit 1
-
-# Decompress data di file ini (dimulai dari baris +\$skip) dan redirect ke file sementara
-if $tail_cmd+\$skip "\$0" | /bin/bzip2 -cd >> "\$tmpfile"; then
-  umask \$umask_val
-  /bin/chmod 700 "\$tmpfile"
-  
-  # Jalankan file yang didekompresi
-  "\$tmpfile" "\${1+\$@}"
-  res=\$?
+umask=`umask`
+umask 77
+tmpfile=`tempfile -p gztmp -d /tmp` || exit 1
+if tail +$skip "$0" | /bin/bzip2 -cd >> $tmpfile; then
+  umask $umask
+  /bin/chmod 700 $tmpfile
+  prog="`echo $0 | /bin/sed 's|^.*/||'`"
+  if /bin/ln -T $tmpfile "/tmp/$prog" 2>/dev/null; then
+    trap '/bin/rm -f $tmpfile "/tmp/$prog"; exit $res' 0
+    (/bin/sleep 5; /bin/rm -f $tmpfile "/tmp/$prog") 2>/dev/null &
+    /tmp/"$prog" ${1+"$@"}; res=$?
+  else
+    trap '/bin/rm -f $tmpfile; exit $res' 0
+    (/bin/sleep 5; /bin/rm -f $tmpfile) 2>/dev/null &
+    $tmpfile ${1+"$@"}; res=$?
+  fi
 else
-  echo "${RED}Cannot decompress \$0!${NC}" >&2; res=1
-fi
-/bin/rm -f "\$tmpfile" # Hapus file sementara setelah selesai
-exit \$res
-EOF_SCRIPT
-    
-    # 3. Kompres file asli dan tambahkan ke script header
-    echo "${GREEN}${x}: Mengenkripsi/Mengkompresi '$i'..."${NC}
-    if ! bzip2 -cv9 "$i" >> "$tmp"; then
-      echo "${RED}${x}: Kompresi gagal untuk '$i', file tidak diubah.${NC}"
-      rm -f "$tmp"
+  echo Cannot decompress $0; exit 1
+fi; exit $res
+EOF
+    bzip2 -cv9 "$i" >> $tmp || {
+      /bin/rm -f $tmp
+      echo ${x}: compression not possible for $i, file unchanged.
       res=1
       continue
-    fi
+    }
 
-  # Dekripsi (Dekompresi)
   else
-    echo "${GREEN}${x}: Mendekripsi/Mendekompresi '$i'..."${NC}
-    # Cari nilai 'skip'
+    # decompression
     skip=23
-    if sed -n 2p "$i" | grep "^skip=[0-9]*$" >/dev/null; then
-      eval `sed -n 2p "$i"` # Set variabel 'skip'
+    if sed -e 1d -e 2q "$i" | grep "^skip=[0-9]*$" >/dev/null; then
+      eval `sed -e 1d -e 2q "$i"`
     fi
-    
-    # Decompress data
-    if $tail_cmd+$skip "$i" | bzip2 -cd > "$tmp"; then
-      : # Sukses
+    if tail +$skip "$i" | bzip2 -cd > $tmp; then
+      :
     else
-      echo "${RED}${x}: '$i' mungkin bukan format terenkripsi oleh $x, file tidak diubah.${NC}"
+      echo ${x}: $i probably not in enc format, file unchanged.
       res=1
       continue
     fi
   fi
-  
-  # --- [ Penggantian File ] ---
-  
-  # 1. Buat backup (nama file dengan ~)
   rm -f "$i~"
   mv "$i" "$i~" || {
-    echo "${RED}${x}: Gagal mem-backup '$i' sebagai '$i~'.${NC}"
+    echo ${x}: cannot backup $i as $i~
+    rm -f $tmp
     res=1
     continue
   }
-  
-  # 2. Ganti file asli dengan file sementara
-  mv "$tmp" "$i" || cp -p "$tmp" "$i" || cp "$tmp" "$i" || {
-    echo "${RED}${x}: Gagal membuat '$i'. Mengembalikan '$i~'.${NC}"
-    mv "$i~" "$i" 2>/dev/null
+  mv $tmp "$i" || cp -p $tmp "$i" 2>/dev/null || cp $tmp "$i" || {
+    echo ${x}: cannot create $i
+    rm -f $tmp
     res=1
     continue
   }
-  
-  # 3. Atur ulang izin (Pastikan file baru *executable*)
-  chmod +x "$i"
-  
-  # 4. Hapus backup jika sukses
-  rm -f "$i~"
+  rm -f $tmp
+  if test -n "$cpmod"; then
+    $cpmod "$i~" "$i" 2>/dev/null
+  elif test $writable -eq 0; then
+    chmod u-w $i 2>/dev/null
+  fi
 done
-
-# Hapus trap agar tidak ada yang dihapus saat keluar
-trap - HUP INT QUIT TRAP USR1 PIPE TERM EXIT
 exit $res
